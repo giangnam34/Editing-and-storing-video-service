@@ -1,1 +1,5 @@
-# Editing-and-storing-video-service
+# Phát triển service xử lý, lưu trữ video sử dụng:
+- Python Django (backend)
+- Cơ sở dữ liệu MySQL 
+- FFmpeg
+- RabbitMQ
