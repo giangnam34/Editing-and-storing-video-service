@@ -394,8 +394,8 @@ class ExtractAudio(MethodView):
             # Save audio to storage
             with open(audio_path, 'rb') as f:
                 content = f.read()
-            audio_storage_id = app.fs.put(content=content, filename=project['filename'].replace('.mp4', '.mp3'),
-                                          project_id=project_id, content_type='audio/mp3')
+            #audio_storage_id = app.fs.put(content=content, filename=project['filename'].replace('.mp4', '.mp3'),
+            #                              project_id=project_id, content_type='audio/mp3')
 
             # Update project with audio storage ID
             app.mongo.db.projects.update_one({'_id': project['_id']}, {'$set': {'processing.video': False}})
@@ -406,6 +406,80 @@ class ExtractAudio(MethodView):
             # Return audio file
             response = Response(content_type='audio/mp3')
             response.headers['Content-Disposition'] = f'attachment; filename={project["filename"].replace(".mp4", ".mp3")}'
+            response.set_data(content)
+            return response
+
+        except Exception as e:
+            # Update processing status and re-raise exception
+            app.mongo.db.projects.update_one({'_id': project['_id']}, {'$set': {'processing.video': False}})
+            raise InternalServerError(str(e))
+
+class ConvertToAVI(MethodView):
+    
+    def post(self, project_id):
+        """
+        Convert video to AVI format
+        ---
+        parameters:
+            - name: project_id
+              in: path
+              type: string
+              required: true
+              description: Unique project id
+        responses:
+          200:
+            description: Video converted successfully
+            content:
+              video/x-msvideo:
+                schema:
+                  type: string
+                  format: binary
+                  example: "JVBERi0xLjQKJeLjz9MKMSAwIG9iaiA8PC9UeXBlL0ZvbnQvQmFzZUZvbnQvTGVuZ3RoIDEwIDAgUj4+CnN0... (binary data)"
+          404:
+            description: Project not found
+          409:
+            description: A running task has not completed
+            schema:
+              type: object
+              properties:
+                processing:
+                  type: array
+                  example:
+                    - Some tasks is still processing
+        """
+
+        # Check if project exists
+        project = app.mongo.db.projects.find_one({'_id': bson.ObjectId(project_id)})
+        if not project:
+            raise NotFound("Project not found")
+
+        # Check if a task is already processing
+        if any(project['processing'].values()):
+            raise Conflict({"processing": ["Some tasks are still processing"]})
+
+        # Update processing status
+        app.mongo.db.projects.update_one({'_id': project['_id']}, {'$set': {'processing.video': True}})
+
+        try:
+            # Get video file path
+            video_path = 'videoserver/media/projects/' + project['storage_id']
+
+            # Convert video to AVI format
+            avi_path = video_path.replace('.mp4', '.avi')
+            subprocess.call(['ffmpeg', '-i', video_path, '-c:v', 'copy', '-c:a', 'copy', avi_path])
+
+            # Save AVI to storage
+            with open(avi_path, 'rb') as f:
+                content = f.read()
+            #avi_storage_id = app.fs.put(content=content, filename=project['filename'].replace('.mp4', '.avi'),
+            #                              project_id=project_id, content_type='video/x-msvideo')
+
+            # Update project with AVI storage ID
+            app.mongo.db.projects.update_one({'_id': project['_id']}, {'$set': {'processing.video': False}})
+
+            # Return AVI file
+            response = Response(content_type='video/x-msvideo')
+            response.headers['Content-Disposition'] = f'attachment; filename={project["filename"].replace(".mp4", ".avi")}'
             response.set_data(content)
             return response
 
@@ -1596,6 +1670,10 @@ bp.add_url_rule(
 bp.add_url_rule(
     '/<project_id>/extract-audio',
     view_func=ExtractAudio.as_view('extract_audio')
+)
+bp.add_url_rule(
+    '/<project_id>/conver_mp4_to_avi',
+    view_func=ConvertToAVI.as_view('conver_mp4_to_avi')
 )
 bp.add_url_rule(
     '/<project_id>/change_speed_video',
