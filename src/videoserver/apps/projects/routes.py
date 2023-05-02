@@ -398,6 +398,7 @@ class ExtractAudio(MethodView):
                                           project_id=project_id, content_type='audio/mp3')
 
             # Update project with audio storage ID
+            app.mongo.db.projects.update_one({'_id': project['_id']}, {'$set': {'processing.video': False}})
             #app.mongo.db.projects.update_one({'_id': project['_id']},
             #                                  {'$set': {'storage_id': audio_storage_id, 'mime_type': 'audio/mp3',
             #                                            'processing.video': False}})
@@ -480,6 +481,8 @@ class ChangeSpeed(MethodView):
                                               project_id=project_id, content_type='video/mp4')
 
                 # Update project with audio storage ID
+                app.mongo.db.projects.update_one({'_id': project['_id']}, {'$set': {'processing.video': False}})
+
                 #app.mongo.db.projects.update_one({'_id': project['_id']},
                 #                                  {'$set': {'storage_id': video_storage_id, 'mime_type': 'video/mp4',
                 #                                            'processing.video': False}})
@@ -494,7 +497,83 @@ class ChangeSpeed(MethodView):
               app.mongo.db.projects.update_one({'_id': project['_id']}, {'$set': {'processing.video': False}})
               raise InternalServerError(str(e))
 
+class MergeVideos(MethodView):
 
+    def post(self, project_id_1, project_id_2):
+        """
+        Merge two videos together
+        ---
+        parameters:
+            - name: project_id_1
+              in: path
+              type: string
+              required: true
+              description: Unique ID of first project
+            - name: project_id_2
+              in: path
+              type: string
+              required: true
+              description: Unique ID of second project
+        responses:
+          200:
+            description: Videos merged successfully
+            content:
+              video/mp4:
+                schema:
+                  type: string
+                  format: binary
+                  example: "JVBERi0xLjQKJeLjz9MKMSAwIG9iaiA8PC9UeXBlL0ZvbnQvQmFzZUZvbnQvTGVuZ3RoIDEwIDAgUj4+CnN0... (binary data)"
+          404:
+            description: Project not found
+          409:
+            description: A running task has not completed
+            schema:
+              type: object
+              properties:
+                processing:
+                  type: array
+                  example:
+                    - Some tasks is still processing
+        """
+
+        # Check if both projects exist
+        project_1 = app.mongo.db.projects.find_one({'_id': bson.ObjectId(project_id_1)})
+        project_2 = app.mongo.db.projects.find_one({'_id': bson.ObjectId(project_id_2)})
+        if not project_1 or not project_2:
+            raise NotFound("Project not found")
+
+        # Check if a task is already processing
+        if any(project_1['processing'].values()) or any(project_2['processing'].values()):
+            raise Conflict({"processing": ["Some tasks are still processing"]})
+
+        # Update processing status for both projects
+        app.mongo.db.projects.update_one({'_id': project_1['_id']}, {'$set': {'processing.video': True}})
+        app.mongo.db.projects.update_one({'_id': project_2['_id']}, {'$set': {'processing.video': True}})
+
+        try:
+            # Get video file paths
+            video_path_1 = 'videoserver/media/projects/' + project_1['storage_id']
+            video_path_2 = 'videoserver/media/projects/' + project_2['storage_id']
+
+            # Merge videos
+            merged_path = "videoserver/media/projects/merged.mp4"
+            subprocess.call(['ffmpeg', '-i', video_path_1, '-i', video_path_2, '-filter_complex', '[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]', '-map', '[v]', '-map', '[a]', '-ac', '2', merged_path])
+            #subprocess.call(['ffmpeg', '-i', video_path_1, '-i', video_path_2, '-filter_complex', 'concat=n=2:v=1:a=0', '-c:v', 'libx264', '-crf', '23', '-preset', 'veryfast', '-c:a', 'copy', merged_path])
+
+            app.mongo.db.projects.update_one({'_id': project_1['_id']}, {'$set': {'processing.video': False}})
+            app.mongo.db.projects.update_one({'_id': project_2['_id']}, {'$set': {'processing.video': False}})
+            # Return merged video
+            with open(merged_path, 'rb') as f:
+                content = f.read()
+            response = Response(content_type='video/mp4')
+            response.headers['Content-Disposition'] = f'attachment; filename=merged.mp4'
+            response.set_data(content)
+            return response
+        
+        except Exception as e:
+            # Update processing status and re-raise exception
+            #app.mongo.db.projects.update_one({'_id': project['_id']}, {'$set': {'processing.video': False}})
+            raise InternalServerError(str(e))
 
 class RetrieveEditDestroyProject(MethodView):
 
@@ -1521,6 +1600,10 @@ bp.add_url_rule(
 bp.add_url_rule(
     '/<project_id>/change_speed_video',
     view_func=ChangeSpeed.as_view('change_speed_video')
+)
+bp.add_url_rule(
+    '/<project_id_1>/<project_id_2>/merge_videos',
+    view_func=MergeVideos.as_view('merge_videos')
 )
 bp.add_url_rule(
     '/<project_id>/thumbnails',
