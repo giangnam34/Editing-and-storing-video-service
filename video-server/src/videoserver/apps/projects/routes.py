@@ -383,7 +383,7 @@ class ExtractAudio(MethodView):
 
         try:
             # Get video file path
-            video_path = 'video-server/src/videoserver/media/projects/' + self.project['storage_id']
+            video_path = '/opt/media/' + self.project['storage_id']
             #print(video_path)
             #video_path = "videoserver/media/projects/2023/5/1/644fdc29a8f11c0438eb5aca/6320c2f632574fabbe37faa2400f799d.mp4"
             # Extract audio from video
@@ -462,7 +462,7 @@ class ConvertToAVI(MethodView):
 
         try:
             # Get video file path
-            video_path = 'video-server/src/videoserver/media/projects/' + self.project['storage_id']
+            video_path = '/opt/media/' + self.project['storage_id']
 
             # Convert video to AVI format
             avi_path = video_path.replace('.mp4', '.avi')
@@ -536,7 +536,7 @@ class ChangeSpeed(MethodView):
                 raise Conflict({"processing": ["Some tasks are still processing"]})
 
             # Get video file path
-            video_path = 'video-server/src/videoserver/media/projects/' + self.project['storage_id']
+            video_path = '/opt/media/' + self.project['storage_id']
 
             # Get desired speed from query parameters
             speed = request.args.get('speed', type=float)
@@ -626,11 +626,11 @@ class MergeVideos(MethodView):
 
         try:
             # Get video file paths
-            video_path_1 = 'video-server/src/videoserver/media/projects/' + project_1['storage_id']
-            video_path_2 = 'video-server/src/videoserver/media/projects/' + project_2['storage_id']
+            video_path_1 = '/opt/media/' + project_1['storage_id']
+            video_path_2 = '/opt/media/' + project_2['storage_id']
 
             # Merge videos
-            merged_path = "videoserver/media/projects/merged.mp4"
+            merged_path = "/opt/media/merged.mp4"
             subprocess.call(['ffmpeg', '-i', video_path_1, '-i', video_path_2, '-filter_complex', '[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]', '-map', '[v]', '-map', '[a]', '-ac', '2', merged_path])
             #subprocess.call(['ffmpeg', '-i', video_path_1, '-i', video_path_2, '-filter_complex', 'concat=n=2:v=1:a=0', '-c:v', 'libx264', '-crf', '23', '-preset', 'veryfast', '-c:a', 'copy', merged_path])
 
